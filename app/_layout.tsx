@@ -1,39 +1,20 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
-import 'react-native-reanimated';
-
-import { useColorScheme } from '@/hooks/useColorScheme';
-
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
+import { Stack } from "expo-router";
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-  });
-
-  useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [loaded]);
-
-  if (!loaded) {
-    return null;
-  }
-
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="accounts/favorite" />
+      <Stack.Screen name="accounts/orders" />
+      <Stack.Screen name="delivery/DeliveryScreen" />
+      <Stack.Screen name="products/ProductsDetails" />
+      <Stack.Screen name="supplier/AddProduct" />
+      <Stack.Screen name="supplier/Notifications" />
+      <Stack.Screen name="supplier/Posts" />
+      <Stack.Screen name="supplier/Profile" />
+      <Stack.Screen name="supplier/Register" />
+      <Stack.Screen name="supplier/SupplierScreen" />
+      <Stack.Screen name="user/SignIn"/>
+    </Stack>
   );
 }
