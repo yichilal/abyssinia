@@ -1,9 +1,12 @@
-import { useNavigation, useRoute } from "@react-navigation/native";
-import { Video } from "expo-av"; // Use expo-video instead of expo-av
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRoute } from "@react-navigation/native";
+import { Video } from "expo-av";
+import { router } from "expo-router";
 import { doc, getDoc } from "firebase/firestore";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  FlatList,
   Image,
   ScrollView,
   StyleSheet,
@@ -12,67 +15,97 @@ import {
   View,
 } from "react-native";
 import Toast from "react-native-toast-message";
-import Icon from "react-native-vector-icons/FontAwesome";
-import { addToCart } from "../cart/AddToCart"; // Import the addToCart function
-import { auth, db } from "../config/firebase"; // Adjust the path to your Firebase config
+import { auth, db } from "../config/firebase";
 
 const ProductDetails = () => {
   const route = useRoute();
-  const navigation = useNavigation();
-  const { id } = route.params; // Get the product ID from navigation params
-  const [product, setProduct] = useState(null); // State to store product data
-  const [isVideoPlaying, setIsVideoPlaying] = useState(false); // State to control video playback
-  const [loading, setLoading] = useState(true); // State to handle loading
-  const [error, setError] = useState(null); // State to handle errors
+  const { id } = route.params;
+  const [product, setProduct] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [quantity, setQuantity] = useState(1);
+  const [currentMediaIndex, setCurrentMediaIndex] = useState(0); // Track the current media index
+  const videoRef = useRef(null);
 
-  // Fetch product data when the component mounts
   useEffect(() => {
     const fetchProduct = async () => {
       try {
-        const productRef = doc(db, "products", id); // Reference to the product document
-        const productSnap = await getDoc(productRef); // Fetch the document
+        const productRef = doc(db, "products", id);
+        const productSnap = await getDoc(productRef);
 
         if (productSnap.exists()) {
-          setProduct({ id: productSnap.id, ...productSnap.data() }); // Set product data
+          const productData = { id: productSnap.id, ...productSnap.data() };
+          setProduct(productData);
         } else {
-          setError("Product not found."); // Handle case where product doesn't exist
+          setError("Product not found.");
         }
       } catch (err) {
         console.error("Error fetching product:", err);
-        setError("Failed to fetch product data."); // Handle errors
+        setError("Failed to fetch product data.");
       } finally {
-        setLoading(false); // Stop loading
+        setLoading(false);
       }
     };
 
     fetchProduct();
-  }, [id]); // Re-fetch when the `id` changes
+  }, [id]);
 
-  // Handle "Add to Cart" button press
-  const handleAddToCart = () => {
-    const productId = product.id; // Get the product ID from the fetched product
-    addToCart(productId); // Call the addToCart function
-  };
-
-  // Handle "Buy Now" button press
-  const handleBuyNow = () => {
-    const user = auth.currentUser; // Get the current user
+  const handleAddToCart = async () => {
+    const user = auth.currentUser;
 
     if (!user) {
+      router.push("user/LoginUser");
       Toast.show({
         type: "error",
         text1: "Authentication Required",
-        text2: "You must be logged in to proceed with the purchase.",
+        text2: "You must log in or register to add items to your cart.",
       });
-      navigation.navigate("Login"); // Redirect to the login screen
-    } else {
-      // Proceed with the purchase
-      console.log("Proceeding to checkout...");
-      navigation.navigate("Checkout", { productId: product.id });
+      return;
+    }
+
+    if (!product) return;
+
+    const productDetails = {
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      imageUrl: product.images[0],
+      quantity: quantity,
+    };
+
+    try {
+      const cartString = await AsyncStorage.getItem("cart");
+      const cart = cartString ? JSON.parse(cartString) : [];
+
+      const existingItemIndex = cart.findIndex(
+        (item) => item.id === product.id
+      );
+
+      if (existingItemIndex !== -1) {
+        cart[existingItemIndex].quantity += quantity;
+      } else {
+        cart.push(productDetails);
+      }
+
+      await AsyncStorage.setItem("cart", JSON.stringify(cart));
+
+      Toast.show({
+        type: "success",
+        text1: "Added to Cart",
+        text2: "The product has been added to your cart.",
+      });
+
+      router.push("CartScreen");
+    } catch (error) {
+      console.error("Error saving to cart:", error);
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Failed to add the product to your cart.",
+      });
     }
   };
 
-  // Show loading indicator while fetching data
   if (loading) {
     return (
       <View style={styles.loaderContainer}>
@@ -81,7 +114,6 @@ const ProductDetails = () => {
     );
   }
 
-  // Show error message if there's an error
   if (error) {
     return (
       <View style={styles.container}>
@@ -90,7 +122,6 @@ const ProductDetails = () => {
     );
   }
 
-  // Show message if product data is not available
   if (!product) {
     return (
       <View style={styles.container}>
@@ -99,22 +130,70 @@ const ProductDetails = () => {
     );
   }
 
+  // Combine video and images into a single array for the media slider
+  const mediaArray = product.video
+    ? [product.video, ...product.images]
+    : [...product.images];
+
+  const renderMediaItem = ({ item, index }) => {
+    const isVideo = index === 0 && product.video; // First item is video if it exists
+    return (
+      <TouchableOpacity
+        onPress={() => setCurrentMediaIndex(index)}
+        style={[
+          styles.thumbnail,
+          currentMediaIndex === index && styles.selectedThumbnail,
+        ]}
+      >
+        {isVideo ? (
+          <Video
+            source={{ uri: item }}
+            style={styles.thumbnailMedia}
+            resizeMode="cover"
+            shouldPlay={false}
+            isMuted
+          />
+        ) : (
+          <Image source={{ uri: item }} style={styles.thumbnailMedia} />
+        )}
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <ScrollView style={styles.container}>
-      {/* Product Images */}
-      {product.images && product.images.length > 0 ? (
-        <View style={styles.imageContainer}>
-          {product.images.map((image, index) => (
-            <Image
-              key={index}
-              source={{ uri: image }}
-              style={styles.productImage}
+      {/* Main Media Section (Video or Image) */}
+      <View style={styles.mediaContainer}>
+        {mediaArray[currentMediaIndex] ? (
+          currentMediaIndex === 0 && product.video ? (
+            <Video
+              ref={videoRef}
+              source={{ uri: mediaArray[currentMediaIndex] }}
+              style={styles.media}
+              useNativeControls
+              resizeMode="contain"
+              isLooping
             />
-          ))}
-        </View>
-      ) : (
-        <Text style={styles.noImageText}>No images available</Text>
-      )}
+          ) : (
+            <Image
+              source={{ uri: mediaArray[currentMediaIndex] }}
+              style={styles.media}
+            />
+          )
+        ) : (
+          <Text style={styles.noMediaText}>No media available</Text>
+        )}
+      </View>
+
+      {/* Horizontal Thumbnail Slider */}
+      <FlatList
+        horizontal
+        data={mediaArray}
+        renderItem={renderMediaItem}
+        keyExtractor={(item, index) => index.toString()}
+        contentContainerStyle={styles.thumbnailContainer}
+        showsHorizontalScrollIndicator={false}
+      />
 
       {/* Product Details */}
       <View style={styles.detailsContainer}>
@@ -125,44 +204,41 @@ const ProductDetails = () => {
         <Text style={styles.productStock}>Stock: {product.stockQuantity}</Text>
       </View>
 
-      {/* Video Section */}
-      {product.video && (
-        <View style={styles.videoContainer}>
-          <Text style={styles.sectionHeader}>Product Video</Text>
-          <View style={styles.videoWrapper}>
-            <Video
-              source={{ uri: product.video }} // Video URL from Firestore
-              style={styles.videoPlayer}
-              useNativeControls // Show native playback controls
-              resizeMode="cover" // Adjust video sizing
-              isLooping // Loop the video
-              shouldPlay={isVideoPlaying} // Control playback
-              onError={(error) => console.error("Video Error:", error)}
-            />
-            {!isVideoPlaying && (
-              <TouchableOpacity
-                style={styles.videoPlaceholder}
-                onPress={() => setIsVideoPlaying(true)} // Start playing the video
-              >
-                <Icon name="play-circle" size={50} color="#007BFF" />
-                <Text style={styles.videoText}>Play Video</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+      {/* Quantity Selector */}
+      <View style={styles.quantityContainer}>
+        <Text style={styles.quantityLabel}>Quantity:</Text>
+        <View style={styles.quantitySelector}>
+          <TouchableOpacity
+            style={styles.quantityButton}
+            onPress={() => setQuantity(quantity > 1 ? quantity - 1 : 1)}
+          >
+            <Text style={styles.quantityButtonText}>-</Text>
+          </TouchableOpacity>
+          <Text style={styles.quantityText}>{quantity}</Text>
+          <TouchableOpacity
+            style={styles.quantityButton}
+            onPress={() =>
+              setQuantity(
+                quantity < product.stockQuantity ? quantity + 1 : quantity
+              )
+            }
+          >
+            <Text style={styles.quantityButtonText}>+</Text>
+          </TouchableOpacity>
         </View>
-      )}
+      </View>
 
       {/* Action Buttons */}
       <View style={styles.actionButtons}>
         <TouchableOpacity
           style={styles.addToCartButton}
-          onPress={handleAddToCart} // Trigger addToCart function
+          onPress={handleAddToCart}
         >
           <Text style={styles.buttonText}>Add to Cart</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.buyNowButton}
-          onPress={handleBuyNow} // Trigger buyNow function
+          onPress={() => router.push("cartscreen")}
         >
           <Text style={styles.buttonText}>Buy Now</Text>
         </TouchableOpacity>
@@ -190,20 +266,39 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 20,
   },
-  noImageText: {
+  noMediaText: {
     fontSize: 16,
     color: "#666",
     textAlign: "center",
     marginVertical: 20,
   },
-  imageContainer: {
+  mediaContainer: {
     marginBottom: 20,
   },
-  productImage: {
+  media: {
     width: "100%",
-    height: 200,
+    height: 300,
     borderRadius: 12,
-    marginBottom: 10,
+  },
+  thumbnailContainer: {
+    marginBottom: 20,
+    paddingHorizontal: 10,
+  },
+  thumbnail: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    marginRight: 10,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  selectedThumbnail: {
+    borderColor: "#007BFF",
+  },
+  thumbnailMedia: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 8,
   },
   detailsContainer: {
     marginBottom: 20,
@@ -235,32 +330,40 @@ const styles = StyleSheet.create({
     color: "#28a745",
     marginBottom: 10,
   },
-  videoContainer: {
+  quantityContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 20,
-    alignItems: "center",
   },
-  videoWrapper: {
-    width: "100%",
-    height: 200,
-    borderRadius: 12,
-    overflow: "hidden",
-    backgroundColor: "#000",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  videoPlayer: {
-    width: "100%",
-    height: "100%",
-  },
-  videoPlaceholder: {
-    position: "absolute",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  videoText: {
+  quantityLabel: {
     fontSize: 16,
+    color: "#333",
+  },
+  quantitySelector: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#007BFF",
+    borderRadius: 8,
+    padding: 5,
+  },
+  quantityButton: {
+    width: 40,
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f0f0f0",
+    borderRadius: 8,
+  },
+  quantityButtonText: {
+    fontSize: 20,
     color: "#007BFF",
-    marginTop: 10,
+  },
+  quantityText: {
+    fontSize: 18,
+    marginHorizontal: 10,
+    color: "#333",
   },
   actionButtons: {
     flexDirection: "row",

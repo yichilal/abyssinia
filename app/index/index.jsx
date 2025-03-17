@@ -2,9 +2,10 @@ import { router } from "expo-router";
 import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Image,
+  ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -21,30 +22,40 @@ const Index = () => {
   const [loading, setLoading] = useState(true);
   const [likedProducts, setLikedProducts] = useState([]);
   const [newPostsCount, setNewPostsCount] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
 
+  // Fetch categories and products from Firestore
   useEffect(() => {
-    const unsubscribeCategories = onSnapshot(collection(db, "products"), (snapshot) => {
-      const categoryList = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+    const unsubscribeCategories = onSnapshot(
+      collection(db, "products"),
+      (snapshot) => {
+        const categoryList = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
 
-      // Extract unique categories
-      const uniqueCategories = [];
-      const categoryNames = new Set();
-      categoryList.forEach((item) => {
-        if (item.category && !categoryNames.has(item.category)) {
-          categoryNames.add(item.category);
-          uniqueCategories.push({
-            id: item.id,
-            name: item.category,
-            imageUrl: item.images && item.images.length > 0 ? item.images[0] : "https://via.placeholder.com/80",
-          });
-        }
-      });
+        // Extract unique categories
+        const uniqueCategories = [];
+        const categoryNames = new Set();
+        categoryList.forEach((item) => {
+          if (item.category && !categoryNames.has(item.category)) {
+            categoryNames.add(item.category);
+            uniqueCategories.push({
+              id: item.id,
+              name: item.category,
+              imageUrl:
+                item.images && item.images.length > 0
+                  ? item.images[0]
+                  : "https://via.placeholder.com/80",
+            });
+          }
+        });
 
-      setCategories(uniqueCategories);
-    });
+        setCategories(uniqueCategories);
+      }
+    );
 
     const unsubscribeProducts = onSnapshot(
       collection(db, "products"),
@@ -77,6 +88,24 @@ const Index = () => {
     };
   }, []);
 
+  // Live search logic
+  useEffect(() => {
+    if (searchQuery.trim() === "") {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+
+    // Filter products based on the search query
+    const results = products.filter((product) =>
+      product.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    setSearchResults(results);
+  }, [searchQuery, products]);
+
+  // Toggle like for a product
   const toggleLike = async (id) => {
     try {
       const productRef = doc(db, "products", id);
@@ -107,27 +136,25 @@ const Index = () => {
     }
   };
 
+  // Handle category press
   const handleCategoryPress = (categoryName) => {
-    console.log("Category Pressed:", categoryName);
+    router.push({
+      pathname: "/products/CategoryProducts",
+      params: { category: categoryName },
+    });
   };
 
+  // Handle add to cart
   const handleAddToCart = (id) => {
     console.log("Add to Cart:", id);
     // Add your logic for adding the product to the cart here
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loaderContainer}>
-        <ActivityIndicator size="large" color="#007BFF" />
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.container}>
+  // Render the header
+  const renderHeader = () => (
+    <View>
       <View style={styles.notificationContainer}>
-        <Icon name="bell" size={24} color="#ECECEC" />
+        <Icon name="bell" size={24} color="#111" />
         {newPostsCount > 0 && (
           <View style={styles.badgeContainer}>
             <Text style={styles.badgeText}>{newPostsCount}</Text>
@@ -138,93 +165,136 @@ const Index = () => {
       {/* Combined Card for Text and SearchBox */}
       <View style={styles.combinedCard}>
         <View style={styles.textContainer}>
-          <Text style={styles.headerText}>Abyssinia Gebeya for Best Experience</Text>
+          <Text style={styles.headerText}>
+            Abyssinia Gebeya for Best Experience
+          </Text>
           <Text style={styles.subHeaderText}>24 Hours Open Market</Text>
         </View>
         <View style={styles.searchBoxContainer}>
-          <SearchBox />
+          <SearchBox
+            onSearchSubmit={(query) => setSearchQuery(query)} // Update search query as user types
+          />
         </View>
       </View>
-
-      {/* Categories Section */}
-      <Text style={styles.sectionHeader}>Categories</Text>
-      <FlatList
-        data={categories}
-        keyExtractor={(item) => item.id}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            key={item.id}
-            style={styles.categoryItem}
-            onPress={() => handleCategoryPress(item.name)}
-          >
-            <Image source={{ uri: item.imageUrl }} style={styles.circleImage} />
-            <Text style={styles.categoryName}>{item.name}</Text>
-          </TouchableOpacity>
-        )}
-      />
-
-      {/* Products Section */}
-      <Text style={styles.sectionHeader}>Most Reviewed</Text>
-      <FlatList
-        data={products}
-        keyExtractor={(item) => item.id}
-        showsVerticalScrollIndicator={false}
-        numColumns={2}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[styles.productCard, likedProducts.includes(item.id) && styles.likedProductCard]}
-            onPress={() => router.push({
-              pathname: "/products/ProductsDetails",
-              params: { id: item.id }, // Pass product data here
-            })}
-          >
-            <TouchableOpacity
-              style={styles.heartIconContainer}
-              onPress={() => toggleLike(item.id)}
-            >
-              <Icon
-                name={likedProducts.includes(item.id) ? "heart" : "heart-o"}
-                size={24}
-                color={likedProducts.includes(item.id) ? "red" : "#333"}
-              />
-            </TouchableOpacity>
-            {item.images && item.images.length > 0 ? (
-              <Image source={{ uri: item.images[0] }} style={styles.productImage} />
-            ) : (
-              <Text style={styles.noImageText}>No Image Available</Text>
-            )}
-            <Text style={styles.productName}>{item.name}</Text>
-            <View style={styles.productInfo}>
-              <Text style={styles.productPrice}>${item.price}</Text>
-              <View style={styles.productStatusContainer}>
-                <Icon name="check-circle" size={16} color="#007BFF" />
-                <Text style={styles.productStatus}>{item.status}</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.cartIconContainer}
-                onPress={() => handleAddToCart(item.id)}
-              >
-                <Icon name="shopping-cart" size={20} color="#007BFF" />
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        )}
-      />
     </View>
+  );
+
+  // Render a product item
+  const renderProductItem = ({ item }) => (
+    <TouchableOpacity
+      style={[
+        styles.productCard,
+        likedProducts.includes(item.id) && styles.likedProductCard,
+      ]}
+      onPress={() =>
+        router.push({
+          pathname: "/products/ProductsDetails",
+          params: { id: item.id },
+        })
+      }
+    >
+      <TouchableOpacity
+        style={styles.heartIconContainer}
+        onPress={() => toggleLike(item.id)}
+      >
+        <Icon
+          name={likedProducts.includes(item.id) ? "heart" : "heart-o"}
+          size={24}
+          color={likedProducts.includes(item.id) ? "red" : "#333"}
+        />
+      </TouchableOpacity>
+      {item.images && item.images.length > 0 ? (
+        <Image source={{ uri: item.images[0] }} style={styles.productImage} />
+      ) : (
+        <Text style={styles.noImageText}>No Image Available</Text>
+      )}
+      <Text style={styles.productName}>{item.name}</Text>
+      <View style={styles.productInfo}>
+        <Text style={styles.productPrice}>${item.price}</Text>
+        <View style={styles.productStatusContainer}>
+          <Icon name="check-circle" size={16} color="#007BFF" />
+          <Text style={styles.productStatus}>{item.status}</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.cartIconContainer}
+          onPress={() => handleAddToCart(item.id)}
+        >
+          <Icon name="shopping-cart" size={20} color="#007BFF" />
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  );
+
+  return (
+    <>
+      {/* Status Bar */}
+      <StatusBar backgroundColor="#8C81F3" barStyle="light-content" />
+
+      {/* Fixed Header */}
+      {renderHeader()}
+
+      {/* Scrollable Content */}
+      <ScrollView style={styles.scrollView}>
+        {/* Display Search Results or Categories and Products */}
+        {isSearching ? (
+          <>
+            <Text style={styles.sectionHeader}>Search Results</Text>
+            <FlatList
+              key={`search-results-${searchResults.length}`} // Force re-render when search results change
+              data={searchResults}
+              keyExtractor={(item) => item.id}
+              renderItem={renderProductItem}
+              numColumns={2}
+              contentContainerStyle={styles.container}
+              showsVerticalScrollIndicator={false}
+            />
+          </>
+        ) : (
+          <>
+            <Text style={styles.sectionHeader}>Categories</Text>
+            <FlatList
+              key="categories" // Unique key for categories FlatList
+              data={categories}
+              keyExtractor={(item) => item.id}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.categoryItem}
+                  onPress={() => handleCategoryPress(item.name)}
+                >
+                  <Image
+                    source={{ uri: item.imageUrl }}
+                    style={styles.circleImage}
+                  />
+                  <Text style={styles.categoryName}>{item.name}</Text>
+                </TouchableOpacity>
+              )}
+            />
+
+            <Text style={styles.sectionHeader}>All Products</Text>
+            <FlatList
+              key={`all-products-${products.length}`} // Force re-render when products change
+              data={products}
+              keyExtractor={(item) => item.id}
+              renderItem={renderProductItem}
+              numColumns={2}
+              contentContainerStyle={styles.container}
+              showsVerticalScrollIndicator={false}
+            />
+          </>
+        )}
+      </ScrollView>
+    </>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: "#A9B7BE",
-  },
-  loaderContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    flexGrow: 1,
+    backgroundColor: "#fff",
+    paddingBottom: 20,
   },
   notificationContainer: {
     position: "absolute",
@@ -239,45 +309,50 @@ const styles = StyleSheet.create({
     right: -5,
     backgroundColor: "#FF6347",
     borderRadius: 10,
-    width: 20,
-    height: 20,
+    width: 16,
+    height: 16,
     justifyContent: "center",
     alignItems: "center",
   },
   badgeText: {
     color: "#fff",
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: "bold",
   },
   combinedCard: {
-    backgroundColor: "#A9B7BE",
-    borderRadius: 10,
+    backgroundColor: "#8C81F3",
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderBottomLeftRadius: 15,
+    borderBottomRightRadius: 15,
     padding: 10,
     marginBottom: 20,
   },
   textContainer: {
-    marginBottom: 10,
+    marginBottom: 5,
   },
   headerText: {
     fontSize: 18,
     fontWeight: "bold",
     textAlign: "center",
-    color: "#333",
+    color: "#fff",
   },
   subHeaderText: {
-    fontSize: 14,
+    fontSize: 16,
     textAlign: "center",
-    color: "#333",
+    color: "#fff",
     padding: 10,
   },
-  searchBoxContainer: {},
+  searchBoxContainer: {
+    width: "100%",
+  },
   sectionHeader: {
     fontSize: 20,
     fontWeight: "bold",
     marginTop: 4,
     marginBottom: 10,
     color: "#333",
-    padding: 10,
+    padding: 20,
   },
   categoryItem: {
     alignItems: "center",
@@ -288,7 +363,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    marginBottom: 10, // Adjusted margin
+    marginBottom: 10,
     resizeMode: "cover",
   },
   categoryName: {
@@ -357,6 +432,9 @@ const styles = StyleSheet.create({
   },
   cartIconContainer: {
     marginLeft: 10,
+  },
+  scrollView: {
+    flex: 1,
   },
 });
 

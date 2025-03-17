@@ -1,7 +1,14 @@
 import { MaterialIcons } from "@expo/vector-icons"; // Icons
 import { useNavigation } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker"; // Image upload
-import { collection, doc, getDocs, query, updateDoc, where } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDocs,
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
@@ -11,31 +18,35 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { auth, db } from "../config/firebase";
 
 const Profile = () => {
   const user = auth.currentUser;
-  const [supplierData, setSupplierData] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [updatedName, setUpdatedName] = useState("");
-  const [updatedProfilePicture, setUpdatedProfilePicture] = useState(null);
+  const [supplierData, setSupplierData] = useState(null); // State to store supplier data
+  const [isEditing, setIsEditing] = useState(false); // State to toggle edit mode
+  const [updatedName, setUpdatedName] = useState(""); // State for updated name
+  const [updatedProfilePicture, setUpdatedProfilePicture] = useState(null); // State for updated profile picture
   const navigation = useNavigation();
 
   // Fetch supplier data from Firestore
   useEffect(() => {
     const fetchSupplierData = async () => {
       if (user?.email) {
-        const suppliersRef = collection(db, "suppliers");
-        const q = query(suppliersRef, where("email", "==", user.email));
-        const querySnapshot = await getDocs(q);
+        try {
+          const suppliersRef = collection(db, "suppliers");
+          const q = query(suppliersRef, where("email", "==", user.email));
+          const querySnapshot = await getDocs(q);
 
-        if (!querySnapshot.empty) {
-          const data = querySnapshot.docs[0].data();
-          setSupplierData(data);
-          setUpdatedName(`${data.fName} ${data.lName}`);
-          setUpdatedProfilePicture(data.profilePicture);
+          if (!querySnapshot.empty) {
+            const data = querySnapshot.docs[0].data();
+            setSupplierData(data);
+            setUpdatedName(`${data.fName} ${data.lName}`);
+            setUpdatedProfilePicture(data.profilePicture);
+          }
+        } catch (error) {
+          console.error("Error fetching supplier data:", error);
         }
       }
     };
@@ -78,6 +89,16 @@ const Profile = () => {
     }
   };
 
+  // Handle clicking on the profile picture to fetch supplier details
+  const handleProfilePictureClick = () => {
+    if (supplierData) {
+      Alert.alert(
+        "Supplier Details",
+        `Name: ${supplierData.fName} ${supplierData.lName}\nEmail: ${supplierData.email}\nPhone: ${supplierData.phoneNumber}\nTrade Type: ${supplierData.tradeType}\nAddress: ${supplierData.address}`
+      );
+    }
+  };
+
   if (!supplierData) {
     return (
       <View style={styles.container}>
@@ -88,14 +109,22 @@ const Profile = () => {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <TouchableOpacity onPress={pickImage} style={styles.imageContainer}>
+      {/* Profile Picture */}
+      <TouchableOpacity
+        onPress={handleProfilePictureClick}
+        style={styles.imageContainer}
+      >
         {updatedProfilePicture ? (
-          <Image source={{ uri: updatedProfilePicture }} style={styles.profileImage} />
+          <Image
+            source={{ uri: updatedProfilePicture }}
+            style={styles.profileImage}
+          />
         ) : (
           <MaterialIcons name="person" size={80} color="#ccc" />
         )}
       </TouchableOpacity>
 
+      {/* Supplier Details */}
       {isEditing ? (
         <TextInput
           value={updatedName}
@@ -104,7 +133,9 @@ const Profile = () => {
           placeholder="Full Name"
         />
       ) : (
-        <Text style={styles.text}>{`${supplierData.fName} ${supplierData.lName}`}</Text>
+        <Text
+          style={styles.text}
+        >{`${supplierData.fName} ${supplierData.lName}`}</Text>
       )}
 
       <Text style={styles.text}>Email: {supplierData.email}</Text>
@@ -112,33 +143,92 @@ const Profile = () => {
       <Text style={styles.text}>Trade Type: {supplierData.tradeType}</Text>
       <Text style={styles.text}>Address: {supplierData.address}</Text>
 
+      {/* Edit/Save Button */}
       {isEditing ? (
         <TouchableOpacity style={styles.button} onPress={updateProfile}>
           <Text style={styles.buttonText}>Save Changes</Text>
         </TouchableOpacity>
       ) : (
-        <TouchableOpacity style={styles.button} onPress={() => setIsEditing(true)}>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => setIsEditing(true)}
+        >
           <Text style={styles.buttonText}>Edit Profile</Text>
         </TouchableOpacity>
       )}
 
-      <TouchableOpacity style={styles.logoutButton} onPress={() => auth.signOut()}>
+      {/* Logout Button */}
+      <TouchableOpacity
+        style={styles.logoutButton}
+        onPress={() => auth.signOut()}
+      >
         <Text style={styles.logoutText}>Logout</Text>
       </TouchableOpacity>
     </ScrollView>
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, alignItems: "center", backgroundColor: "#fff" },
-  imageContainer: { width: 120, height: 120, borderRadius: 60, backgroundColor: "#eee", justifyContent: "center", alignItems: "center", marginBottom: 20 },
-  profileImage: { width: 120, height: 120, borderRadius: 60 },
-  text: { fontSize: 18, marginBottom: 10, color: "#333" },
-  input: { width: "100%", padding: 10, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, marginBottom: 10 },
-  button: { backgroundColor: "#007bff", padding: 15, borderRadius: 8, marginTop: 10, width: "80%", alignItems: "center" },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
-  logoutButton: { marginTop: 20, padding: 10, borderRadius: 5, backgroundColor: "#dc3545", width: "80%", alignItems: "center" },
-  logoutText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
-});
-
 export default Profile;
+
+// Styles
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 20,
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  imageContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#eee",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  profileImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+  },
+  text: {
+    fontSize: 18,
+    marginBottom: 10,
+    color: "#333",
+  },
+  input: {
+    width: "100%",
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  button: {
+    backgroundColor: "#007bff",
+    padding: 15,
+    borderRadius: 8,
+    marginTop: 10,
+    width: "80%",
+    alignItems: "center",
+  },
+  buttonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  logoutButton: {
+    marginTop: 20,
+    padding: 10,
+    borderRadius: 5,
+    backgroundColor: "#dc3545",
+    width: "80%",
+    alignItems: "center",
+  },
+  logoutText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+});

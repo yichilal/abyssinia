@@ -1,12 +1,12 @@
-import { View, Text } from 'react-native'
-import React from 'react'
+import React from "react";
+import { Text, View } from "react-native";
 
 const DeliveryScreen = () => {
   return (
     <View>
       <Text>DeliveryScreen</Text>
     </View>
-  )
-}
+  );
+};
 
-export default DeliveryScreen
+export default DeliveryScreen;

@@ -1,7 +1,9 @@
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { collection, onSnapshot } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
   FlatList,
   Image,
   StyleSheet,
@@ -13,63 +15,100 @@ import Icon from "react-native-vector-icons/FontAwesome";
 import SearchBox from "../../components/SearchBox";
 import { db } from "../config/firebase";
 
+const { width } = Dimensions.get("window"); // Get the width of the phone screen
+
 const Category = () => {
+  const { category } = useLocalSearchParams(); // Get the category name from the route params
+  const router = useRouter(); // Use the useRouter hook for navigation
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
+  const [filteredProducts, setFilteredProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [likedProducts, setLikedProducts] = useState([]);
   const [newPostsCount, setNewPostsCount] = useState(0);
-  const [isBackgroundGreen, setIsBackgroundGreen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(category || null);
 
   useEffect(() => {
-    const unsubscribeCategories = onSnapshot(collection(db, "products"), (snapshot) => {
-      const categoryList = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+    const unsubscribeCategories = onSnapshot(
+      collection(db, "products"),
+      (snapshot) => {
+        const categoryList = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
 
-      // Extract unique categories
-      const uniqueCategories = [];
-      const categoryNames = new Set();
-      categoryList.forEach((item) => {
-        if (item.category && !categoryNames.has(item.category)) {
-          categoryNames.add(item.category);
-          uniqueCategories.push({
-            id: item.id,
-            name: item.category,
-            imageUrl: item.images && item.images.length > 0 ? item.images[0] : "https://via.placeholder.com/80",
-          });
+        // Extract unique categories
+        const uniqueCategories = [];
+        const categoryNames = new Set();
+        categoryList.forEach((item) => {
+          if (item.category && !categoryNames.has(item.category)) {
+            categoryNames.add(item.category);
+            uniqueCategories.push({
+              id: item.id,
+              name: item.category,
+              imageUrl:
+                item.images && item.images.length > 0
+                  ? item.images[0]
+                  : "https://via.placeholder.com/80",
+            });
+          }
+        });
+
+        setCategories(uniqueCategories);
+      }
+    );
+
+    const unsubscribeProducts = onSnapshot(
+      collection(db, "products"),
+      (querySnapshot) => {
+        const productsList = querySnapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        setProducts(productsList);
+
+        // Filter products based on the selected category
+        if (selectedCategory) {
+          const filtered = productsList.filter(
+            (product) => product.category === selectedCategory
+          );
+          setFilteredProducts(filtered);
+        } else {
+          setFilteredProducts(productsList);
         }
-      });
 
-      setCategories(uniqueCategories);
-    });
-
-    const unsubscribeProducts = onSnapshot(collection(db, "products"), (querySnapshot) => {
-      const productsList = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setProducts(productsList);
-      setNewPostsCount(productsList.length);
-      setLoading(false);
-    });
+        setNewPostsCount(productsList.length);
+        setLoading(false);
+      }
+    );
 
     return () => {
       unsubscribeCategories();
       unsubscribeProducts();
     };
-  }, []);
+  }, [selectedCategory]);
 
   const toggleLike = (id) => {
     setLikedProducts((prev) =>
-      prev.includes(id) ? prev.filter((productId) => productId !== id) : [...prev, id]
+      prev.includes(id)
+        ? prev.filter((productId) => productId !== id)
+        : [...prev, id]
     );
-    setIsBackgroundGreen((prev) => !prev);
   };
 
   const handleCategoryPress = (categoryName) => {
-    console.log("Category Pressed:", categoryName);
+    // Navigate to the category products page
+    router.push({
+      pathname: "/products/CategoryProducts",
+      params: { category: categoryName },
+    });
+  };
+
+  const handleProductPress = (id) => {
+    router.push({
+      pathname: "/products/ProductsDetails",
+      params: { id }, // Pass product ID to the details page
+    });
   };
 
   if (loading) {
@@ -82,7 +121,7 @@ const Category = () => {
 
   return (
     <FlatList
-      style={[styles.container, isBackgroundGreen && styles.greenBackground]}
+      style={styles.container}
       contentContainerStyle={styles.scrollViewContent}
       ListHeaderComponent={
         <>
@@ -98,7 +137,9 @@ const Category = () => {
           {/* Combined Card for Text and SearchBox */}
           <View style={styles.combinedCard}>
             <View style={styles.textContainer}>
-              <Text style={styles.headerText}>Abyssinia Gebeya for Best Experience</Text>
+              <Text style={styles.headerText}>
+                Abyssinia Gebeya for Best Experience
+              </Text>
               <Text style={styles.subHeaderText}>24 Hours Open Market</Text>
             </View>
             <View style={styles.searchBoxContainer}>
@@ -108,28 +149,41 @@ const Category = () => {
 
           {/* Categories Section */}
           <Text style={styles.sectionHeader}>Categories</Text>
-          <FlatList
-            data={categories}
-            keyExtractor={(item) => item.id}
-            scrollEnabled={false} // Disable scrolling for the nested FlatList
-            renderItem={({ item }) => (
+          <View style={styles.categoryList}>
+            {categories.map((item) => (
               <TouchableOpacity
                 key={item.id}
                 style={styles.categoryItem}
                 onPress={() => handleCategoryPress(item.name)}
               >
-                <Image source={{ uri: item.imageUrl }} style={styles.circleImage} />
+                <Image
+                  source={{ uri: item.imageUrl }}
+                  style={styles.circleImage}
+                  onError={(e) =>
+                    console.log("Image load error:", e.nativeEvent.error)
+                  }
+                />
                 <Text style={styles.categoryName}>{item.name}</Text>
               </TouchableOpacity>
-            )}
-          />
+            ))}
+          </View>
+
+          {/* Products Section Header */}
+          <Text style={styles.sectionHeader}>
+            {selectedCategory
+              ? `Products in ${selectedCategory}`
+              : "Most Reviewed"}
+          </Text>
         </>
       }
-      data={products}
+      data={filteredProducts}
       keyExtractor={(item) => item.id}
       numColumns={2}
       renderItem={({ item }) => (
-        <TouchableOpacity style={styles.productCard}>
+        <TouchableOpacity
+          style={styles.productCard}
+          onPress={() => handleProductPress(item.id)}
+        >
           <TouchableOpacity
             style={styles.heartIconContainer}
             onPress={() => toggleLike(item.id)}
@@ -140,11 +194,19 @@ const Category = () => {
               color={likedProducts.includes(item.id) ? "red" : "#333"}
             />
           </TouchableOpacity>
-          {item.images && item.images.length > 0 ? (
-            <Image source={{ uri: item.images[0] }} style={styles.productImage} />
-          ) : (
-            <Text style={styles.noImageText}>No Image Available</Text>
-          )}
+          <TouchableOpacity onPress={() => handleProductPress(item.id)}>
+            {item.images && item.images.length > 0 ? (
+              <Image
+                source={{ uri: item.images[0] }}
+                style={styles.productImage}
+                onError={(e) =>
+                  console.log("Image load error:", e.nativeEvent.error)
+                }
+              />
+            ) : (
+              <Text style={styles.noImageText}>No Image Available</Text>
+            )}
+          </TouchableOpacity>
           <Text style={styles.productName}>{item.name}</Text>
           <View style={styles.productInfo}>
             <Text style={styles.productPrice}>${item.price}</Text>
@@ -155,7 +217,7 @@ const Category = () => {
           </View>
         </TouchableOpacity>
       )}
-      ListFooterComponent={<View style={{ height: 20 }} />} // Add some padding at the bottom
+      ListFooterComponent={<View style={{ height: 20 }} />}
     />
   );
 };
@@ -163,13 +225,10 @@ const Category = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#AEF9BE",
+    backgroundColor: "#fff",
   },
   scrollViewContent: {
     padding: 16,
-  },
-  greenBackground: {
-    backgroundColor: "rgba(40, 167, 69, 0.1)",
   },
   loaderContainer: {
     flex: 1,
@@ -200,10 +259,12 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   combinedCard: {
-    backgroundColor: "#AEF9BE",
+    backgroundColor: "#8C81F3", // Updated color for the combined card
     borderRadius: 10,
     padding: 10,
     marginBottom: 20,
+    width: width - 32, // Set width to screen width minus padding
+    alignSelf: "center", // Center the card horizontally
   },
   textContainer: {
     marginBottom: 10,
@@ -212,12 +273,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     textAlign: "center",
-    color: "#333",
+    color: "#fff", // White text for better contrast
   },
   subHeaderText: {
     fontSize: 14,
     textAlign: "center",
-    color: "#333",
+    color: "#fff", // White text for better contrast
     padding: 10,
   },
   searchBoxContainer: {},
@@ -228,6 +289,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     color: "#333",
   },
+  categoryList: {
+    flexDirection: "column",
+  },
   categoryItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -236,7 +300,7 @@ const styles = StyleSheet.create({
   circleImage: {
     width: 60,
     height: 60,
-    borderRadius: 30, // Circular image
+    borderRadius: 30,
     marginRight: 15,
     resizeMode: "cover",
   },

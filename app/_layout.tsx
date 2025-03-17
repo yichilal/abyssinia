@@ -14,7 +14,10 @@ export default function RootLayout() {
       <Stack.Screen name="supplier/Profile" />
       <Stack.Screen name="supplier/Register" />
       <Stack.Screen name="supplier/SupplierScreen" />
-      <Stack.Screen name="user/SignIn"/>
+      <Stack.Screen name="user/SignIn" />
+      <Stack.Screen name="user/Register" />
+       <Stack.Screen name="search/searchresult"/>
+      <Stack.Screen name="user/LoginUser" /> {/* Corrected from <stack.Screen> to <Stack.Screen> */}
     </Stack>
   );
 }

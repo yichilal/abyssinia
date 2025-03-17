@@ -33,7 +33,8 @@ const AddProduct = () => {
 
   useEffect(() => {
     (async () => {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
         Alert.alert(
           "Permission Denied",
@@ -84,19 +85,25 @@ const AddProduct = () => {
       allowsEditing: true,
       aspect: [4, 3],
       quality: 1,
+      allowsMultipleSelection: true, // Allow multiple image selection
     });
 
     if (!result.canceled && result.assets?.length > 0) {
       setLoadingImage(true);
-      const uploadUrl = await uploadToCloudinary(result.assets[0].uri, "image");
+      const uploadPromises = result.assets.map(async (asset) => {
+        const uploadUrl = await uploadToCloudinary(asset.uri, "image");
+        return uploadUrl;
+      });
+
+      const uploadedUrls = await Promise.all(uploadPromises);
       setLoadingImage(false);
 
-      if (uploadUrl) {
-        setImages([...images, uploadUrl]);
+      if (uploadedUrls.every((url) => url)) {
+        setImages([...images, ...uploadedUrls]);
         Toast.show({
           type: "success",
-          text1: "Image Uploaded",
-          text2: "Your image has been uploaded successfully.",
+          text1: "Images Uploaded",
+          text2: "Your images have been uploaded successfully.",
         });
       }
     }
@@ -128,8 +135,18 @@ const AddProduct = () => {
 
   // Store Product in Firestore
   const addProduct = async () => {
-    if (!name || !description || !price || !stockQuantity || !category || images.length === 0) {
-      Alert.alert("Error", "Please fill in all fields and upload at least one image.");
+    if (
+      !name ||
+      !description ||
+      !price ||
+      !stockQuantity ||
+      !category ||
+      images.length < 5 // Ensure at least 5 images are uploaded
+    ) {
+      Alert.alert(
+        "Error",
+        "Please fill in all fields and upload at least 5 images."
+      );
       return;
     }
 
@@ -177,14 +194,46 @@ const AddProduct = () => {
 
   return (
     <ScrollView style={styles.container}>
-      <TextInput placeholder="Product Name" value={name} onChangeText={setName} style={styles.input} />
-      <TextInput placeholder="Description" value={description} onChangeText={setDescription} style={[styles.input, styles.textArea]} multiline />
-      <TextInput placeholder="Price" value={price} onChangeText={setPrice} keyboardType="numeric" style={styles.input} />
-      <TextInput placeholder="Stock Quantity" value={stockQuantity} onChangeText={setStockQuantity} keyboardType="numeric" style={styles.input} />
-      <TextInput placeholder="Category" value={category} onChangeText={setCategory} style={styles.input} />
+      <TextInput
+        placeholder="Product Name"
+        value={name}
+        onChangeText={setName}
+        style={styles.input}
+      />
+      <TextInput
+        placeholder="Description"
+        value={description}
+        onChangeText={setDescription}
+        style={[styles.input, styles.textArea]}
+        multiline
+      />
+      <TextInput
+        placeholder="Price"
+        value={price}
+        onChangeText={setPrice}
+        keyboardType="numeric"
+        style={styles.input}
+      />
+      <TextInput
+        placeholder="Stock Quantity"
+        value={stockQuantity}
+        onChangeText={setStockQuantity}
+        keyboardType="numeric"
+        style={styles.input}
+      />
+      <TextInput
+        placeholder="Category"
+        value={category}
+        onChangeText={setCategory}
+        style={styles.input}
+      />
 
       <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
-        <Text style={styles.uploadText}>{loadingImage ? "Uploading Image..." : "Upload Product Image"}</Text>
+        <Text style={styles.uploadText}>
+          {loadingImage
+            ? "Uploading Images..."
+            : "Upload Product Images (Min 5)"}
+        </Text>
       </TouchableOpacity>
 
       <View style={styles.imagePreview}>
@@ -194,10 +243,14 @@ const AddProduct = () => {
       </View>
 
       <TouchableOpacity style={styles.uploadButton} onPress={pickVideo}>
-        <Text style={styles.uploadText}>{loadingVideo ? "Uploading Video..." : "Upload Product Video"}</Text>
+        <Text style={styles.uploadText}>
+          {loadingVideo ? "Uploading Video..." : "Upload Product Video"}
+        </Text>
       </TouchableOpacity>
 
-      {video && <Text style={styles.videoText}>Video uploaded successfully</Text>}
+      {video && (
+        <Text style={styles.videoText}>Video uploaded successfully</Text>
+      )}
 
       <TouchableOpacity style={styles.submitButton} onPress={addProduct}>
         <Text style={styles.submitText}>Add Product</Text>
@@ -212,13 +265,38 @@ export default AddProduct;
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, backgroundColor: "#f7f8fa" },
-  input: { height: 50, borderWidth: 1, borderColor: "#ddd", borderRadius: 12, paddingHorizontal: 15, marginBottom: 16, backgroundColor: "#fff" },
+  input: {
+    height: 50,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 12,
+    paddingHorizontal: 15,
+    marginBottom: 16,
+    backgroundColor: "#fff",
+  },
   textArea: { height: 100, textAlignVertical: "top" },
-  uploadButton: { backgroundColor: "#007bff", padding: 15, borderRadius: 12, alignItems: "center", marginBottom: 16 },
+  uploadButton: {
+    backgroundColor: "#007bff",
+    padding: 15,
+    borderRadius: 12,
+    alignItems: "center",
+    marginBottom: 16,
+  },
   uploadText: { color: "#fff", fontWeight: "600" },
-  image: { width: 80, height: 80, borderRadius: 10, marginRight: 10, marginBottom: 10 },
+  image: {
+    width: 80,
+    height: 80,
+    borderRadius: 10,
+    marginRight: 10,
+    marginBottom: 10,
+  },
   imagePreview: { flexDirection: "row", flexWrap: "wrap", marginBottom: 16 },
   videoText: { textAlign: "center", marginTop: 10, color: "#28a745" },
-  submitButton: { backgroundColor: "#28a745", padding: 15, borderRadius: 12, alignItems: "center" },
+  submitButton: {
+    backgroundColor: "#28a745",
+    padding: 15,
+    borderRadius: 12,
+    alignItems: "center",
+  },
   submitText: { color: "#fff", fontWeight: "bold" },
 });
