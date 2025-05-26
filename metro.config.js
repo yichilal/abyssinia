@@ -1,11 +1,24 @@
-const { getDefaultConfig } = require('expo/metro-config');
+const { getDefaultConfig } = require("expo/metro-config");
 
-const config = getDefaultConfig(__dirname);
+module.exports = (() => {
+  const config = getDefaultConfig(__dirname);
 
-config.resolver.assetExts.push('db'); // Add any additional asset extensions if needed
-
-module.exports = config;
-// Import the Expo superclass which has support for PostCSS.
-
-
+  return {
+    ...config,
+    transformer: {
+      ...config.transformer,
+      getTransformOptions: async () => ({
+        transform: {
+          experimentalImportSupport: false,
+          inlineRequires: true,
+        },
+      }),
+    },
+    resolver: {
+      ...config.resolver,
+      assetExts: [...config.resolver.assetExts, "png", "json"], // Add png and json
+      sourceExts: [...config.resolver.sourceExts, "jsx", "ts", "tsx", "cjs"],
+    },
+  };
+})();
 

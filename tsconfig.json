@@ -11,7 +11,9 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    "**/*.jsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
-, "app/cart/getcart.jsx"  ]
+, "app/config/firebase.js", "app/payment/orderConfirmation.js", "app/payment/paymentWebView.js", //"app/cart/getcart.jsx"
+]
 }

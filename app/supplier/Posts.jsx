@@ -1,9 +1,9 @@
 import { collection, getDocs, query, where } from "firebase/firestore";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   Image,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -11,162 +11,342 @@ import {
 import { auth, db } from "../config/firebase";
 
 const Posts = () => {
-  const [products, setProducts] = useState([]); // State to store products
-  const [loading, setLoading] = useState(true); // State to track loading status
-  const user = auth.currentUser; // Get the currently logged-in user
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const user = auth.currentUser;
 
-  // Fetch products posted by the logged-in supplier
-  useEffect(() => {
-    const fetchProducts = async () => {
-      if (!user) {
-        setLoading(false);
-        return;
-      }
+  const fetchProducts = useCallback(async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
 
-      try {
-        // Create a query to fetch products where supplierId matches the logged-in user's UID
-        const productsQuery = query(
-          collection(db, "products"),
-          where("supplierId", "==", user.uid)
-        );
+    try {
+      setError(null);
+      // Query products
+      const productsQuery = query(
+        collection(db, "products"),
+        where("supplierId", "==", user.uid)
+      );
 
-        const productsSnapshot = await getDocs(productsQuery);
-        const productsList = productsSnapshot.docs.map((doc) => ({
+      const productsSnapshot = await getDocs(productsQuery);
+      const productsPromises = productsSnapshot.docs.map(async (doc) => {
+        const productData = {
           id: doc.id,
           ...doc.data(),
-        }));
-        setProducts(productsList);
-      } catch (error) {
-        console.error("Error fetching products:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+          images: doc.data().images || [], // Ensure images is always an array
+          video: doc.data().video || null, // Ensure video has a default value
+          category: doc.data().category || "Uncategorized", // Default category
+          description: doc.data().description || "", // Default empty description
+          name: doc.data().name || "Unnamed Product", // Default product name
+        };
 
-    fetchProducts();
+        // Fetch variants for each product
+        try {
+          const variantsRef = collection(db, "products", doc.id, "variants");
+          const variantsSnap = await getDocs(variantsRef);
+          const variantsData = variantsSnap.docs.map((variantDoc) => ({
+            id: variantDoc.id,
+            ...variantDoc.data(),
+            stock: variantDoc.data().stock || 0, // Ensure stock has a default value
+            price: Number(variantDoc.data().price) || 0, // Ensure price is a number
+          }));
+
+          // Calculate total stock and price range from variants
+          const totalStock = variantsData.reduce(
+            (sum, variant) => sum + variant.stock,
+            0
+          );
+          const prices = variantsData
+            .map((variant) => variant.price)
+            .filter((price) => !isNaN(price));
+          const priceRange =
+            prices.length > 0
+              ? {
+                  min: Math.min(...prices),
+                  max: Math.max(...prices),
+                }
+              : { min: 0, max: 0 }; // Default price range
+
+          return {
+            ...productData,
+            variants: variantsData,
+            totalStock,
+            priceRange,
+          };
+        } catch (variantError) {
+          console.error(
+            `Error fetching variants for product ${doc.id}:`,
+            variantError
+          );
+          return {
+            ...productData,
+            variants: [],
+            totalStock: 0,
+            priceRange: { min: 0, max: 0 },
+          };
+        }
+      });
+
+      const productsWithVariants = await Promise.all(productsPromises);
+      setProducts(productsWithVariants);
+    } catch (error) {
+      console.error("Error fetching products:", error);
+      setError("Failed to load products. Please try again.");
+      setProducts([]); // Ensure products is always an array
+    } finally {
+      setLoading(false);
+    }
   }, [user]);
 
-  // Render each product item
-  const renderProductItem = ({ item }) => (
-    <View style={styles.productContainer}>
-      {/* Display the first image or video */}
-      {item.images && item.images.length > 0 ? (
-        <Image source={{ uri: item.images[0] }} style={styles.productImage} />
-      ) : item.video ? (
-        <Text style={styles.videoText}>Video available</Text>
-      ) : (
-        <Text style={styles.noMediaText}>No media available</Text>
-      )}
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
 
-      {/* Product Details */}
-      <Text style={styles.productName}>{item.name}</Text>
-      <Text style={styles.productPrice}>${item.price}</Text>
-      <Text style={styles.productCategory}>Category: {item.category}</Text>
-      <Text style={styles.productDescription}>{item.description}</Text>
-      <Text style={styles.productStock}>Stock: {item.stockQuantity}</Text>
+  const ProductItem = ({ item }) => (
+    <View style={styles.productCard}>
+      <View style={styles.mediaContainer}>
+        {item.images && item.images.length > 0 ? (
+          <Image
+            source={{ uri: item.images[0] }}
+            style={styles.productImage}
+            resizeMode="cover"
+          />
+        ) : item.video ? (
+          <View style={styles.videoPlaceholder}>
+            <Text style={styles.videoText}>Video Content</Text>
+          </View>
+        ) : (
+          <View style={styles.noMedia}>
+            <Text style={styles.noMediaText}>No Media</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.productDetails}>
+        <Text style={styles.productName}>{item.name || "Unnamed Product"}</Text>
+
+        {/* Price Range Display */}
+        <Text style={styles.productPrice}>
+          {item.priceRange
+            ? item.priceRange.min === item.priceRange.max
+              ? `$${item.priceRange.min.toFixed(2)}`
+              : `$${item.priceRange.min.toFixed(
+                  2
+                )} - $${item.priceRange.max.toFixed(2)}`
+            : "Price not set"}
+        </Text>
+
+        <Text style={styles.productCategory}>
+          {item.category || "Uncategorized"}
+        </Text>
+
+        <Text style={styles.productDescription} numberOfLines={2}>
+          {item.description || "No description available"}
+        </Text>
+
+        {/* Variants Summary */}
+        <View style={styles.variantsSummary}>
+          <Text style={styles.variantsTitle}>
+            {(item.variants || []).length}{" "}
+            {(item.variants || []).length === 1 ? "Variant" : "Variants"}
+          </Text>
+          <Text style={styles.variantsStock}>
+            Total Stock: {item.totalStock || 0}
+          </Text>
+        </View>
+
+        {/* Stock Status */}
+        <Text
+          style={[
+            styles.productStock,
+            { color: (item.totalStock || 0) > 0 ? "#28a745" : "#dc3545" },
+          ]}
+        >
+          {(item.totalStock || 0) > 0
+            ? `In Stock: ${item.totalStock}`
+            : "Out of Stock"}
+        </Text>
+      </View>
+    </View>
+  );
+
+  const renderHeader = () => (
+    <>
+      <Text style={styles.pageTitle}>My Products</Text>
+      {error && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
+    </>
+  );
+
+  const renderEmpty = () => (
+    <View style={styles.emptyState}>
+      <Text style={styles.emptyText}>
+        {user ? "No products found." : "Please sign in to view products."}
+      </Text>
     </View>
   );
 
   if (loading) {
     return (
-      <View style={styles.loaderContainer}>
-        <Text>Loading...</Text>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007bff" />
+        <Text style={styles.loadingText}>Loading Products...</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>My Products</Text>
-      {products.length > 0 ? (
-        <FlatList
-          data={products}
-          renderItem={renderProductItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContainer}
-        />
-      ) : (
-        <Text style={styles.noProductsText}>No products found.</Text>
-      )}
-    </ScrollView>
+    <FlatList
+      style={styles.container}
+      data={products}
+      renderItem={ProductItem}
+      keyExtractor={(item) => item.id}
+      ListHeaderComponent={renderHeader}
+      ListEmptyComponent={renderEmpty}
+      contentContainerStyle={styles.productList}
+      showsVerticalScrollIndicator={false}
+    />
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#f5f6f8",
+  },
+  productList: {
     padding: 16,
-    backgroundColor: "#f7f8fa",
-  },
-  loaderContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  listContainer: {
     paddingBottom: 20,
   },
-  productContainer: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
+  pageTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  productCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
     marginBottom: 16,
+    overflow: "hidden",
+    elevation: 4,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+  },
+  mediaContainer: {
+    width: "100%",
+    height: 220,
   },
   productImage: {
     width: "100%",
-    height: 200,
-    borderRadius: 12,
-    marginBottom: 10,
+    height: "100%",
+  },
+  videoPlaceholder: {
+    flex: 1,
+    backgroundColor: "#e9ecef",
+    justifyContent: "center",
+    alignItems: "center",
   },
   videoText: {
-    textAlign: "center",
     color: "#007bff",
-    marginBottom: 10,
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  noMedia: {
+    flex: 1,
+    backgroundColor: "#f1f3f5",
+    justifyContent: "center",
+    alignItems: "center",
   },
   noMediaText: {
-    textAlign: "center",
-    color: "#666",
-    marginBottom: 10,
+    color: "#6c757d",
+    fontSize: 14,
+  },
+  productDetails: {
+    padding: 16,
   },
   productName: {
-    fontSize: 18,
-    fontWeight: "bold",
+    fontSize: 20,
+    fontWeight: "600",
+    color: "#1a1a1a",
     marginBottom: 8,
   },
   productPrice: {
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: "500",
     color: "#28a745",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   productCategory: {
     fontSize: 14,
-    color: "#666",
-    marginBottom: 8,
+    color: "#6c757d",
+    marginBottom: 6,
+    textTransform: "capitalize",
   },
   productDescription: {
     fontSize: 14,
-    color: "#444",
+    color: "#495057",
     marginBottom: 8,
+    lineHeight: 20,
+  },
+  variantsSummary: {
+    backgroundColor: "#f8f9fa",
+    padding: 8,
+    borderRadius: 6,
+    marginBottom: 8,
+  },
+  variantsTitle: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#1a1a1a",
+    marginBottom: 2,
+  },
+  variantsStock: {
+    fontSize: 13,
+    color: "#6c757d",
   },
   productStock: {
     fontSize: 14,
-    color: "#dc3545",
+    fontWeight: "500",
   },
-  noProductsText: {
-    textAlign: "center",
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f5f6f8",
+  },
+  loadingText: {
+    marginTop: 10,
     fontSize: 16,
-    color: "#666",
+    color: "#495057",
+  },
+  errorContainer: {
+    backgroundColor: "#ffe5e5",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: "#dc3545",
+    fontSize: 14,
+    textAlign: "center",
+  },
+  emptyState: {
+    padding: 20,
+    alignItems: "center",
+  },
+  emptyText: {
+    fontSize: 16,
+    color: "#6c757d",
+    textAlign: "center",
   },
 });
 

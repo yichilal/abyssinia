@@ -1,184 +1,547 @@
-import { Ionicons, MaterialIcons } from "@expo/vector-icons"; // For icons
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import React, { useEffect, useState } from "react";
+import { router } from "expo-router";
+import { useVideoPlayer, VideoView } from "expo-video";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { auth, db } from "../config/firebase";
 
 const SupplierScreen = () => {
-  const user = auth.currentUser;
+  const { width } = useWindowDimensions();
+  const [user, setUser] = useState(auth.currentUser);
   const [supplierData, setSupplierData] = useState(null);
+  const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
+  const [accountDisabled, setAccountDisabled] = useState(false);
   const navigation = useNavigation();
 
-  // Fetch supplier data from Firestore
-  useEffect(() => {
-    const fetchSupplierData = async () => {
-      if (user?.email) {
-        setLoading(true);
-        try {
-          const suppliersRef = collection(db, "suppliers");
-          const q = query(suppliersRef, where("email", "==", user.email));
-          const querySnapshot = await getDocs(q);
+  // Get first recommendation with video
+  const videoRecommendation = recommendations.find((rec) => rec.videoUrl);
+  const player = useVideoPlayer(
+    videoRecommendation?.videoUrl || "",
+    (player) => {
+      player.loop = false;
+    }
+  );
 
-          if (!querySnapshot.empty) {
-            const data = querySnapshot.docs[0].data();
-            setSupplierData(data);
-          }
-        } catch (error) {
-          console.error("Error fetching supplier data:", error);
-        } finally {
-          setLoading(false);
+  const fetchData = useCallback(() => {
+    if (!user?.email) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    setLoading(true);
+    const q1 = query(
+      collection(db, "userprofile"),
+      where("email", "==", user.email)
+    );
+    const q2 = query(
+      collection(db, "notifications"),
+      where("recipientId", "==", user.uid),
+      where("read", "==", false)
+    );
+    const q3 = collection(db, "recommendations");
+
+    const unsub1 = onSnapshot(q1, (snap) => {
+      if (snap.empty) {
+        setSupplierData(null);
+      } else {
+        const data = snap.docs[0].data();
+        setSupplierData(data);
+        if (data.disabled || data.status === "disabled") {
+          setAccountDisabled(true);
+          Alert.alert(
+            "Account Disabled",
+            "Your supplier account has been disabled by admin. Please contact support.",
+            [{ text: "OK", onPress: () => router.replace("/") }]
+          );
+        } else {
+          setAccountDisabled(false);
         }
       }
-    };
+    });
 
-    fetchSupplierData();
+    const unsub2 = onSnapshot(q2, (snap) => setNotificationCount(snap.size));
+    const unsub3 = onSnapshot(q3, (snap) =>
+      setRecommendations(
+        snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      )
+    );
+
+    setLoading(false);
+    setRefreshing(false);
+    return () => {
+      unsub1();
+      unsub2();
+      unsub3();
+    };
   }, [user]);
 
-  return (
-    <ScrollView contentContainerStyle={styles.container}>
-      {/* Profile and Navigation Icons in a Horizontal Line */}
-      <View style={styles.horizontalContainer}>
-        {/* Profile Section */}
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged((currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (user) return fetchData();
+  }, [user, fetchData]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchData();
+  }, [fetchData]);
+
+  const isAddProductEnabled =
+    !accountDisabled && supplierData?.status === "approved";
+
+  const navItems = [
+    {
+      icon: "newspaper",
+      color: "#3b82f6",
+      label: "Posts",
+      route: "supplier/Posts",
+      disabled: accountDisabled,
+    },
+    {
+      icon: "add-box",
+      color: isAddProductEnabled ? "#22c55e" : "#9ca3af",
+      label: "Add Product",
+      route: "supplier/AddProduct",
+      disabled: !isAddProductEnabled || accountDisabled,
+      isMaterial: true,
+    },
+    {
+      icon: "notifications",
+      color: "#f59e0b",
+      label: "Notifications",
+      route: "supplier/Notifications",
+      hasBadge: true,
+      disabled: accountDisabled,
+    },
+    {
+      icon: "chatbubble-ellipses",
+      color: "#8b5cf6",
+      label: "Messages",
+      route: "/supplier/Message",
+      disabled: accountDisabled,
+    },
+    {
+      icon: "help-circle-outline",
+      color: "#3b82f6",
+      label: "Help",
+      route: "supplier/help",
+      disabled: accountDisabled,
+    },
+  ];
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#1E40AF" />
+        <Text style={styles.loadingText}>Loading...</Text>
+      </View>
+    );
+  }
+
+  if (!user) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Ionicons name="log-in-outline" size={40} color="#EF4444" />
+        <Text style={styles.errorText}>Please log in to continue</Text>
+      </View>
+    );
+  }
+
+  if (accountDisabled) {
+    return (
+      <View style={styles.disabledContainer}>
+        <Ionicons name="warning-outline" size={60} color="#EF4444" />
+        <Text style={styles.disabledTitle}>Account Disabled</Text>
+        <Text style={styles.disabledText}>
+          Your supplier account has been disabled by the administrator.
+        </Text>
+        <Text style={styles.disabledText}>
+          Please contact support for more information.
+        </Text>
         <TouchableOpacity
-          style={styles.profileSection}
-          onPress={() => navigation.navigate("supplier/Profile")}
+          style={styles.logoutButton}
+          onPress={() => auth.signOut().then(() => router.replace("/"))}
         >
-          <View style={styles.profileCircle}>
-            {loading ? (
-              <ActivityIndicator size="small" color="#007bff" />
-            ) : supplierData?.profilePicture ? (
-              <Image
-                source={{ uri: supplierData.profilePicture }}
-                style={styles.profileImage}
-              />
-            ) : (
-              <Ionicons name="person" size={28} color="#888" />
-            )}
-          </View>
-          <Text style={styles.profileName}>
-            {supplierData
-              ? `${supplierData.fName} ${supplierData.lName}`
-              : "Supplier Name"}
-          </Text>
+          <Text style={styles.logoutButtonText}>Sign Out</Text>
         </TouchableOpacity>
+      </View>
+    );
+  }
 
-        {/* Navigation Icons */}
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor="#1E40AF"
+        />
+      }
+    >
+      <View style={[styles.headerContainer, { width: width - 32 }]}>
+        <View style={styles.profileSection}>
+          <TouchableOpacity
+            onPress={() => router.push("supplier/ProfileSupplier")}
+          >
+            <View style={styles.profileCircle}>
+              {supplierData?.profilePicture ? (
+                <Image
+                  source={{ uri: supplierData.profilePicture }}
+                  style={styles.profileImage}
+                />
+              ) : (
+                <Ionicons name="person" size={32} color="#FFF" />
+              )}
+            </View>
+            <Text style={styles.profileName}>
+              {supplierData
+                ? `${supplierData.fName || "Unknown"} ${
+                    supplierData.lName || ""
+                  }`
+                : "Supplier"}
+            </Text>
+            <View
+              style={[
+                styles.statusBadge,
+                supplierData?.status === "approved"
+                  ? styles.statusApproved
+                  : styles.statusPending,
+              ]}
+            >
+              <Text style={styles.statusText}>
+                {supplierData?.status || "Pending"}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.navigationContainer}>
-          <TouchableOpacity
-            style={styles.navItem}
-            onPress={() => navigation.navigate("supplier/Posts")}
-          >
-            <Ionicons name="newspaper" size={20} color="#007bff" />
-            <Text style={styles.navText}>Posts</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.navItem}
-            onPress={() => navigation.navigate("supplier/AddProduct")}
-          >
-            <MaterialIcons name="add-box" size={20} color="#28a745" />
-            <Text style={styles.navText}>Add Product</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.navItem}
-            onPress={() => navigation.navigate("supplier/Notifications")}
-          >
-            <Ionicons name="notifications" size={20} color="#ffc107" />
-            <Text style={styles.navText}>Notifications</Text>
-          </TouchableOpacity>
+          {navItems.map((item, index) => (
+            <TouchableOpacity
+              key={item.label}
+              style={[styles.navItem, item.disabled && styles.disabledNavItem]}
+              onPress={() => router.push(item.route)}
+              disabled={item.disabled}
+            >
+              <View
+                style={[
+                  styles.navIconBackground,
+                  { backgroundColor: item.color },
+                ]}
+              >
+                {item.isMaterial ? (
+                  <MaterialIcons name={item.icon} size={24} color="#FFF" />
+                ) : (
+                  <Ionicons name={item.icon} size={24} color="#FFF" />
+                )}
+                {item.hasBadge && notificationCount > 0 && (
+                  <View style={styles.notificationBadge}>
+                    <Text style={styles.notificationCount}>
+                      {notificationCount > 9 ? "9+" : notificationCount}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.navLabel}>{item.label}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
       </View>
 
-      {/* Additional Content */}
-      <View style={styles.contentSection}>
-        <Text style={styles.sectionTitle}>Supplier Dashboard</Text>
-        {loading ? (
-          <ActivityIndicator size="large" color="#007bff" />
-        ) : (
-          <Text style={styles.sectionText}>
-            {supplierData
-              ? "Welcome to your supplier dashboard. Manage your products, posts, and notifications here."
-              : "No supplier data found."}
-          </Text>
+      <View style={[styles.contentSection, { width: width - 32 }]}>
+        <Text style={styles.sectionTitle}>Dashboard</Text>
+        <Text style={styles.sectionText}>
+          {supplierData
+            ? supplierData.status === "approved"
+              ? "Manage your products and posts with ease."
+              : "Pending approval. Please wait."
+            : "Complete your profile to start."}
+        </Text>
+
+        {videoRecommendation && (
+          <View style={styles.videoContent}>
+            <Text style={styles.recommendationText}>
+              {videoRecommendation.text}
+            </Text>
+            <View style={styles.videoContainer}>
+              <VideoView
+                style={styles.video}
+                player={player}
+                allowsFullscreen
+                allowsPictureInPicture
+                nativeControls
+              />
+              <TouchableOpacity
+                style={styles.playButton}
+                onPress={() => {
+                  player.playing ? player.pause() : player.play();
+                }}
+              >
+                <Ionicons
+                  name={player.playing ? "pause" : "play"}
+                  size={24}
+                  color="#FFF"
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
       </View>
     </ScrollView>
   );
 };
 
-export default SupplierScreen;
-
-// Styles
+// Styles remain unchanged
 const styles = StyleSheet.create({
   container: {
-    flexGrow: 1,
-    padding: 20,
-    backgroundColor: "#f8f9fa",
+    flex: 1,
+    backgroundColor: "#F9FAFB",
   },
-  horizontalContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  profileSection: {
+  contentContainer: {
+    padding: 16,
+    paddingBottom: 32,
     alignItems: "center",
   },
-  profileCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "#ddd",
+  loadingContainer: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 5,
+    backgroundColor: "#F9FAFB",
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#1E40AF",
+  },
+  errorText: {
+    marginTop: 12,
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#EF4444",
+    textAlign: "center",
+  },
+  headerContainer: {
+    backgroundColor: "#FFF",
+    borderRadius: 12,
+    marginBottom: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  profileSection: {
+    backgroundColor: "#1E40AF",
+    padding: 24,
+    alignItems: "center",
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+  },
+  profileCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: "#FFF",
   },
   profileImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: "100%",
+    height: "100%",
+    borderRadius: 40,
   },
   profileName: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#333",
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#FFF",
+    marginBottom: 8,
+  },
+  statusBadge: {
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: "#FFF",
+  },
+  statusApproved: {
+    backgroundColor: "#DCFCE7",
+  },
+  statusPending: {
+    backgroundColor: "#FEE2E2",
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    color: "#1E2937",
   },
   navigationContainer: {
     flexDirection: "row",
-    alignItems: "center",
+    justifyContent: "space-around",
+    padding: 12,
+    backgroundColor: "#FFF",
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
   },
   navItem: {
     alignItems: "center",
-    marginHorizontal: 6,
-    padding: 6,
+    padding: 4,
   },
-  navText: {
+  navIconBackground: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  navLabel: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: "#6B7280",
     marginTop: 4,
-    fontSize: 12,
-    color: "#333",
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  notificationBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    backgroundColor: "#EF4444",
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#FFF",
+  },
+  notificationCount: {
+    color: "#FFF",
+    fontSize: 8,
+    fontWeight: "700",
   },
   contentSection: {
-    marginTop: 20,
+    backgroundColor: "#FFF",
+    padding: 20,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 10,
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#1E40AF",
+    marginBottom: 12,
   },
   sectionText: {
+    fontSize: 14,
+    color: "#6B7280",
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+  videoContent: {
+    marginTop: 16,
+  },
+  recommendationText: {
+    fontSize: 14,
+    color: "#1E2937",
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  videoContainer: {
+    position: "relative",
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "#000",
+    width: "100%",
+    aspectRatio: 16 / 9,
+  },
+  video: {
+    width: "100%",
+    height: "100%",
+  },
+  playButton: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    transform: [{ translateX: -24 }, { translateY: -24 }],
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    padding: 12,
+    borderRadius: 24,
+  },
+  disabledContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+    backgroundColor: "#F9FAFB",
+  },
+  disabledTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#EF4444",
+    marginVertical: 16,
+    textAlign: "center",
+  },
+  disabledText: {
     fontSize: 16,
-    color: "#555",
+    color: "#6B7280",
+    textAlign: "center",
+    marginBottom: 8,
+    lineHeight: 24,
+  },
+  logoutButton: {
+    marginTop: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    backgroundColor: "#EF4444",
+    borderRadius: 8,
+  },
+  logoutButtonText: {
+    color: "#FFF",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  disabledNavItem: {
+    opacity: 0.5,
   },
 });
+
+export default SupplierScreen;

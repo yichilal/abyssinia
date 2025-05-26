@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "211802540278",
+    "project_id": "abyssiniagebeyapro",
+    "storage_bucket": "abyssiniagebeyapro.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:211802540278:android:f27d9eada240c0e5d984d7",
+        "android_client_info": {
+          "package_name": "com.yichilal.myapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "211802540278-0vkv2v4ph444sgfj8hvk2q8siuk9lrc6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCqTYNe0ceNPtqsF9V2dGaLe2R2zE7Zmqg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "211802540278-0vkv2v4ph444sgfj8hvk2q8siuk9lrc6.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
